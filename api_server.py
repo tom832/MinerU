@@ -303,10 +303,43 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    import logging
+    
+    # 配置日志格式，包含时间信息
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    
     print("=" * 50)
     print("MinerU API 服务 v2.0")
     print("端口: 8766")
     print("认证: Bearer Token")
     print(f"Token: {BEARER_TOKEN}")
     print("=" * 50)
-    uvicorn.run(app, host="0.0.0.0", port=8766) 
+    
+    # 配置 uvicorn 日志格式
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "default": {
+                "formatter": "default",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "root": {
+            "level": "INFO",
+            "handlers": ["default"],
+        },
+    }
+    
+    uvicorn.run(app, host="0.0.0.0", port=8766, log_config=log_config) 
