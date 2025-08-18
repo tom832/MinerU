@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 import uuid
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, status
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, status, Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -22,12 +23,63 @@ from magic_pdf.data.read_api import read_local_images
 # 加载 .env 文件
 load_dotenv()
 
+DOCS_ACCESS_TOKEN = os.getenv("DOCS_ACCESS_TOKEN")
+
+class DocsProtectionMiddleware(BaseHTTPMiddleware):
+    """保护文档访问的中间件"""
+    
+    def __init__(self, app, docs_token: str = None):
+        super().__init__(app)
+        self.docs_token = docs_token
+    
+    async def dispatch(self, request: Request, call_next):
+        # 检查是否是访问docs相关路径
+        if request.url.path in ["/docs", "/redoc"] or request.url.path.startswith("/openapi"):
+            # 如果设置了docs token，则需要验证
+            if self.docs_token:
+                # 从查询参数中获取token
+                token = request.query_params.get("token")
+                
+                # 对于openapi.json请求，检查Referer头部是否包含正确的token
+                if request.url.path.startswith("/openapi"):
+                    referer = request.headers.get("referer", "")
+                    if f"token={self.docs_token}" in referer:
+                        # 如果Referer包含正确的token，允许访问
+                        pass
+                    elif token != self.docs_token:
+                        return Response(
+                            content="Unauthorized access to docs",
+                            status_code=401,
+                            media_type="text/plain; charset=utf-8"
+                        )
+                elif token != self.docs_token:
+                    # 对于docs和redoc页面，直接检查token参数
+                    return Response(
+                        content="Unauthorized access to docs",
+                        status_code=401,
+                        media_type="text/plain; charset=utf-8"
+                    )
+        
+        # 继续处理请求
+        response = await call_next(request)
+        return response
+
 app = FastAPI(
     title="MinerU API 服务",
     description="简化版 MinerU API 服务，支持 PDF 和图片处理",
     version="2.0.0",
-    root_path="/mineru"
+    root_path="/mineru",
+    docs_url=None if not DOCS_ACCESS_TOKEN else "/docs",
+    redoc_url=None if not DOCS_ACCESS_TOKEN else "/redoc",
 )
+
+# 添加文档保护中间件
+if DOCS_ACCESS_TOKEN:
+    app.add_middleware(DocsProtectionMiddleware, docs_token=DOCS_ACCESS_TOKEN)
+
+instrumentator = Instrumentator(
+    excluded_handlers=["/metrics", "/health"]
+).instrument(app).expose(app)
 
 # 添加 CORS 中间件
 app.add_middleware(
